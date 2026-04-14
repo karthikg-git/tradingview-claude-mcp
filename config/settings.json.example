@@ -1,0 +1,29 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "matcher": "(?i)tradingview",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /path/to/hooks/macos/launch_tv.sh",
+            "timeout": 45000
+          }
+        ]
+      },
+      {
+        "matcher": "(?i)health check",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /path/to/hooks/macos/health_check.sh",
+            "timeout": 10000
+          }
+        ]
+      }
+    ]
+  },
+  "enabledMcpjsonServers": [
+    "tradingview"
+  ]
+}
