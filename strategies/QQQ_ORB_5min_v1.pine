@@ -1,0 +1,126 @@
+//@version=6
+// QQQ ORB-VWAP 5-min | PST 6:30-8:30am (ET 9:45-11:30)
+// ORB: first 3 x 5-min candles (9:30, 9:35, 9:40 ET)
+// Filters: VWAP + 1H EMA20 + Prev Day Close + Vol
+// Trail: activates at 0.5R, trails 0.5R behind peak
+strategy("ORB-VWAP 5min v1",
+     overlay=true,
+     initial_capital=25000, currency=currency.USD,
+     margin_long=25, margin_short=25,
+     default_qty_type=strategy.fixed, default_qty_value=1,
+     commission_type=strategy.commission.cash_per_contract,
+     commission_value=0, slippage=1, calc_on_every_tick=false)
+
+i_maxRisk   = input.float(250.0, "Risk Per Trade ($)",  minval=25.0,  step=25.0)
+i_maxDay    = input.float(500.0, "Max Day Loss ($)",    minval=100.0, step=50.0)
+i_atrMult   = input.float(1.5,   "ATR Stop Mult",       minval=0.5,   step=0.25)
+i_useHTF    = input.bool(true,   "1H EMA20 Trend Filter")
+i_volMax    = input.float(1.0,   "Max ORB Vol vs avg",  minval=0.3,   step=0.1)
+i_trailAct  = input.float(0.5,   "Trail activate (×R)", minval=0.25,  step=0.25)
+i_trailOff  = input.float(0.5,   "Trail offset (×R)",   minval=0.25,  step=0.25)
+i_usePDHL   = input.bool(true,   "Prev Day Close Filter")
+i_startDt   = input.time(timestamp("2025-04-18"), "Backtest Start (1yr)")
+
+// 1H trend filter
+htfClose = request.security(syminfo.tickerid, "60", close,             lookahead=barmerge.lookahead_off)
+htfEma20 = request.security(syminfo.tickerid, "60", ta.ema(close, 20), lookahead=barmerge.lookahead_off)
+htfOkL   = not i_useHTF or htfClose > htfEma20
+htfOkS   = not i_useHTF or htfClose < htfEma20
+
+// Previous day levels
+pdClose = request.security(syminfo.tickerid, "D", close[1], lookahead=barmerge.lookahead_off)
+pdHigh  = request.security(syminfo.tickerid, "D", high[1],  lookahead=barmerge.lookahead_off)
+pdLow   = request.security(syminfo.tickerid, "D", low[1],   lookahead=barmerge.lookahead_off)
+
+vwapVal = ta.vwap
+atrVal  = ta.atr(14)
+
+nyHour   = hour(time, "America/New_York")
+nyMinute = minute(time, "America/New_York")
+nyTotal  = nyHour * 60 + nyMinute
+isOpen   = nyHour == 9 and nyMinute == 30
+
+// ORB: aggregate high/low of first 3 x 5-min bars (9:30, 9:35, 9:40 ET)
+var float orbH     = na
+var float orbL     = na
+var int   orbCount = 0
+
+if isOpen
+    orbH     := high
+    orbL     := low
+    orbCount := 1
+else if orbCount > 0 and orbCount < 3
+    orbH     := math.max(orbH, high)
+    orbL     := math.min(orbL, low)
+    orbCount += 1
+
+orbFormed = orbCount >= 3  // complete after 9:40 bar closes
+
+// Vol filter: 9:30 bar volume vs 20-day rolling avg
+var float[] orbVols  = array.new_float(0)
+var float   prevOrbV = na
+var bool    volOk    = false
+
+if isOpen
+    if not na(prevOrbV)
+        array.push(orbVols, prevOrbV)
+        if array.size(orbVols) > 20
+            array.shift(orbVols)
+    orbAvg   = array.size(orbVols) >= 5 ? array.avg(orbVols) : na
+    volOk   := not na(orbAvg) and volume < orbAvg * i_volMax
+    prevOrbV := volume
+
+// Session: 9:45-11:30 ET (PST 6:45-8:30am)
+inSession = nyTotal >= 9*60+45 and nyTotal < 11*60+30
+inWindow  = time >= i_startDt
+
+// Day loss limit
+var float dayEq   = na
+var bool  dayDead = false
+if isOpen
+    dayEq   := strategy.equity
+    dayDead := false
+if not na(dayEq) and (strategy.equity - dayEq) < -i_maxDay
+    dayDead := true
+
+noPos = strategy.position_size == 0
+atrOk = not na(atrVal) and atrVal > 0
+ok    = inSession and inWindow and noPos and not dayDead and orbFormed and atrOk and volOk
+
+// Prev day close: long above, short below
+pdOkL = not i_usePDHL or close > pdClose
+pdOkS = not i_usePDHL or close < pdClose
+
+longSig  = ok and close > orbH and close > vwapVal and htfOkL and pdOkL
+shortSig = ok and close < orbL and close < vwapVal and htfOkS and pdOkS
+
+// Position sizing
+stopDist    = math.max(atrVal * i_atrMult, syminfo.mintick * 10)
+stopDollars = stopDist * syminfo.pointvalue
+qty         = math.min(math.max(math.floor(i_maxRisk / stopDollars), 1), 200)
+stopTicks   = math.round(stopDist / syminfo.mintick)
+trailPoints = math.round(stopDist * i_trailAct / syminfo.mintick)
+trailOffset = math.round(stopDist * i_trailOff / syminfo.mintick)
+
+if longSig
+    strategy.entry("L", strategy.long, qty=qty)
+    strategy.exit("Lx", "L", loss=stopTicks, trail_points=trailPoints, trail_offset=trailOffset)
+
+if shortSig
+    strategy.entry("S", strategy.short, qty=qty)
+    strategy.exit("Sx", "S", loss=stopTicks, trail_points=trailPoints, trail_offset=trailOffset)
+
+if nyTotal >= 15*60+30 and not noPos
+    strategy.close_all("EOD")
+
+// Plots
+plot(vwapVal,               "VWAP",    color.purple,               linewidth=2)
+plot(orbFormed ? orbH : na, "ORB H",   color.new(color.green, 40), linewidth=1, style=plot.style_stepline)
+plot(orbFormed ? orbL : na, "ORB L",   color.new(color.red,   40), linewidth=1, style=plot.style_stepline)
+plot(i_usePDHL ? pdHigh : na, "PD High", color.new(color.blue,   60), linewidth=1, style=plot.style_stepline)
+plot(i_usePDHL ? pdLow  : na, "PD Low",  color.new(color.orange, 60), linewidth=1, style=plot.style_stepline)
+
+if longSig
+    label.new(bar_index, low,  "L", color=color.green, textcolor=color.white, style=label.style_label_up,   size=size.small)
+if shortSig
+    label.new(bar_index, high, "S", color=color.red,   textcolor=color.white, style=label.style_label_down, size=size.small)

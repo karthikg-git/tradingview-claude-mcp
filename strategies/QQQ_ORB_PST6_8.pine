@@ -1,0 +1,94 @@
+//@version=6
+// QQQ ORB-VWAP PST 6-8am (ET 9:45-11:00) | vol=0.9 | RR=2.0
+// Best result so far: +12.3% annual, PF=1.522, 43.2% WR, 44 trades, DD=7.2%
+strategy("ORB-VWAP PST6-8 Universal",
+     overlay=true,
+     initial_capital=25000, currency=currency.USD,
+     margin_long=25, margin_short=25,
+     default_qty_type=strategy.fixed, default_qty_value=1,
+     commission_type=strategy.commission.cash_per_contract,
+     commission_value=0, slippage=1, calc_on_every_tick=false)
+
+i_maxRisk  = input.float(250.0, "Risk Per Trade ($)", minval=25.0, step=25.0)
+i_maxDay   = input.float(500.0, "Max Day Loss ($)",   minval=100.0, step=50.0)
+i_rr       = input.float(2.0,   "R:R Ratio",          minval=1.0,   step=0.5)
+i_atrMult  = input.float(1.5,   "ATR Stop Mult",      minval=0.5,   step=0.25)
+i_useHTF   = input.bool(true,   "1H Trend Filter")
+i_volMax   = input.float(0.9,   "Max Vol vs avg",     minval=0.3,   step=0.1)
+i_startDt  = input.time(timestamp("2025-04-18"), "Backtest Start (1yr)")
+
+htfClose = request.security(syminfo.tickerid, "60", close,             lookahead=barmerge.lookahead_off)
+htfEma20 = request.security(syminfo.tickerid, "60", ta.ema(close, 20), lookahead=barmerge.lookahead_off)
+htfOkL   = not i_useHTF or htfClose > htfEma20
+htfOkS   = not i_useHTF or htfClose < htfEma20
+
+vwapVal = ta.vwap
+atrVal  = ta.atr(14)
+
+nyHour   = hour(time, "America/New_York")
+nyMinute = minute(time, "America/New_York")
+nyTotal  = nyHour * 60 + nyMinute
+isOpen   = nyHour == 9 and nyMinute == 30
+
+var float[] orbVols  = array.new_float(0)
+var float   prevOrbV = na
+var bool    volOk    = false
+
+if isOpen
+    if not na(prevOrbV)
+        array.push(orbVols, prevOrbV)
+        if array.size(orbVols) > 20
+            array.shift(orbVols)
+    orbAvg  = array.size(orbVols) >= 5 ? array.avg(orbVols) : na
+    volOk  := not na(orbAvg) and volume < orbAvg * i_volMax
+    prevOrbV := volume
+
+var float orbH = na
+var float orbL = na
+if isOpen
+    orbH := high
+    orbL := low
+
+orbFormed = not na(orbH) and nyTotal > 9*60+30
+inSession = nyTotal >= 9*60+45 and nyTotal < 11*60+0
+inWindow  = time >= i_startDt
+
+var float dayEq   = na
+var bool  dayDead = false
+if isOpen
+    dayEq   := strategy.equity
+    dayDead := false
+if not na(dayEq) and (strategy.equity - dayEq) < -i_maxDay
+    dayDead := true
+
+noPos = strategy.position_size == 0
+atrOk = not na(atrVal) and atrVal > 0
+ok    = inSession and inWindow and noPos and not dayDead and orbFormed and atrOk and volOk
+
+longSig  = ok and close > orbH and close > vwapVal and htfOkL
+shortSig = ok and close < orbL and close < vwapVal and htfOkS
+
+stopDist    = math.max(atrVal * i_atrMult, syminfo.mintick * 10)
+stopDollars = stopDist * syminfo.pointvalue
+qty         = math.min(math.max(math.floor(i_maxRisk / stopDollars), 1), 200)
+stopTicks   = math.round(stopDist / syminfo.mintick)
+tgtTicks    = math.round(stopDist * i_rr / syminfo.mintick)
+
+if longSig
+    strategy.entry("L", strategy.long, qty=qty)
+    strategy.exit("Lx", "L", loss=stopTicks, profit=tgtTicks)
+
+if shortSig
+    strategy.entry("S", strategy.short, qty=qty)
+    strategy.exit("Sx", "S", loss=stopTicks, profit=tgtTicks)
+
+if nyTotal >= 15*60+30 and not noPos
+    strategy.close_all("EOD")
+
+plot(vwapVal,               "VWAP",  color.purple,              linewidth=2)
+plot(orbFormed ? orbH : na, "ORB H", color.new(color.green,40), linewidth=1, style=plot.style_stepline)
+plot(orbFormed ? orbL : na, "ORB L", color.new(color.red,  40), linewidth=1, style=plot.style_stepline)
+if longSig
+    label.new(bar_index, low,  "L", color=color.green, textcolor=color.white, style=label.style_label_up,   size=size.small)
+if shortSig
+    label.new(bar_index, high, "S", color=color.red,   textcolor=color.white, style=label.style_label_down, size=size.small)

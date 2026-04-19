@@ -1,16 +1,13 @@
-# Auto-detect TradingView Desktop installation (handles version updates)
-$tvDir = Get-ChildItem "C:\Program Files\WindowsApps" `
-         -Filter "TradingView.Desktop_*_x64_*" `
-         -Directory -ErrorAction SilentlyContinue |
-         Sort-Object Name -Descending | Select-Object -First 1
+# Auto-detect TradingView Desktop installation via AppxPackage (works without WindowsApps read access)
+$pkg = Get-AppxPackage -Name "TradingView.Desktop" -ErrorAction SilentlyContinue | Sort-Object Version -Descending | Select-Object -First 1
 
-if (-not $tvDir) {
-    $ctx = "ERROR: TradingView Desktop not found in WindowsApps. Please install it from the Microsoft Store."
+if (-not $pkg) {
+    $ctx = "ERROR: TradingView Desktop not found. Please install it from the Microsoft Store."
     @{ hookSpecificOutput = @{ hookEventName = "UserPromptSubmit"; additionalContext = $ctx } } | ConvertTo-Json -Compress
     exit 1
 }
 
-$tvExe = Join-Path $tvDir.FullName "TradingView.exe"
+$tvExe = Join-Path $pkg.InstallLocation "TradingView.exe"
 
 # Kill existing instances
 Stop-Process -Name TradingView -Force -ErrorAction SilentlyContinue

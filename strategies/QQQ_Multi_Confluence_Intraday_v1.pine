@@ -1,0 +1,174 @@
+//@version=6
+strategy("QQQ Multi-Confluence Intraday v1",
+     overlay=true, initial_capital=5000, currency=currency.USD,
+     default_qty_type=strategy.fixed, default_qty_value=1,
+     commission_type=strategy.commission.percent, commission_value=0.05,
+     slippage=2, calc_on_every_tick=false)
+
+// ─── INPUTS ──────────────────────────────────────────────────────────
+var G1 = "📊 Risk Management"
+i_maxTradeLoss = input.float(100.0, "Max Loss Per Trade ($)", group=G1, minval=10.0,  step=10.0)
+i_maxDayLoss   = input.float(250.0, "Max Day Loss ($)",       group=G1, minval=50.0,  step=25.0)
+i_rr           = input.float(2.0,   "R:R Ratio",              group=G1, minval=1.0,   step=0.5)
+i_atrLen       = input.int(14,      "ATR Length",             group=G1, minval=5)
+i_atrMult      = input.float(1.5,   "ATR Stop Multiplier",    group=G1, minval=0.5,   step=0.25)
+
+var G2 = "📈 Indicators"
+i_emaFast = input.int(20,     "EMA Fast",             group=G2, minval=5)
+i_emaSlow = input.int(50,     "EMA Slow",             group=G2, minval=10)
+i_rsiLen  = input.int(14,     "RSI Length",           group=G2, minval=5)
+i_rsiOB   = input.float(60.0, "RSI Bull Threshold",   group=G2, minval=50.0, step=1.0)
+i_rsiOS   = input.float(40.0, "RSI Bear Threshold",   group=G2, maxval=50.0, step=1.0)
+i_volMult = input.float(1.2,  "Volume vs 20-bar avg", group=G2, minval=1.0,  step=0.1)
+
+var G4 = "🎯 Filters"
+i_useHTF   = input.bool(true,  "Use 1H Trend Filter",   group=G4)
+i_useLevel = input.bool(false, "Use Key Level Filter",   group=G4)
+i_orbBars  = input.int(3,      "ORB Bars (3 = 15 min)", group=G4, minval=1, maxval=12)
+i_levBuf   = input.float(0.3,  "Level Buffer %",         group=G4, minval=0.05, step=0.05)
+
+// ─── HIGHER TIMEFRAME DATA ────────────────────────────────────────────
+// 1H intermediate trend
+htfClose = request.security(syminfo.tickerid, "60", close,             lookahead=barmerge.lookahead_off)
+htfEma20 = request.security(syminfo.tickerid, "60", ta.ema(close, 20), lookahead=barmerge.lookahead_off)
+htfVwap  = request.security(syminfo.tickerid, "60", ta.vwap,           lookahead=barmerge.lookahead_off)
+
+// Daily primary trend
+dClose = request.security(syminfo.tickerid, "D", close,             lookahead=barmerge.lookahead_off)
+dEma20 = request.security(syminfo.tickerid, "D", ta.ema(close, 20), lookahead=barmerge.lookahead_off)
+dEma50 = request.security(syminfo.tickerid, "D", ta.ema(close, 50), lookahead=barmerge.lookahead_off)
+
+// ─── BASE INDICATORS (5-min) ──────────────────────────────────────────
+vwapVal  = ta.vwap
+emaFast  = ta.ema(close, i_emaFast)
+emaSlow  = ta.ema(close, i_emaSlow)
+rsiVal   = ta.rsi(close, i_rsiLen)
+atrVal   = ta.atr(i_atrLen)
+volAvg20 = ta.sma(volume, 20)
+
+// ─── OPENING RANGE BREAKOUT ───────────────────────────────────────────
+nyHour   = hour(time, "America/New_York")
+nyMinute = minute(time, "America/New_York")
+
+// ORB starts at 9:30 AM ET (market open)
+isSessionOpen = nyHour == 9 and nyMinute == 30
+
+var float orbHigh  = na
+var float orbLow   = na
+var int   orbCount = 0
+
+if isSessionOpen
+    orbHigh  := high
+    orbLow   := low
+    orbCount := 1
+else if orbCount > 0 and orbCount < i_orbBars
+    orbHigh  := math.max(orbHigh, high)
+    orbLow   := math.min(orbLow,  low)
+    orbCount := orbCount + 1
+
+orbFormed = orbCount >= i_orbBars and not na(orbHigh)
+
+// ─── SESSION FILTER ───────────────────────────────────────────────────
+// Trade only during morning (9:35–11:30) and afternoon (2:00–3:30) sessions
+inMorning   = not na(time("5", "0935-1130", "America/New_York"))
+inAfternoon = not na(time("5", "1400-1530", "America/New_York"))
+canTrade    = inMorning or inAfternoon
+
+// ─── TREND FILTERS ───────────────────────────────────────────────────
+// Daily: price above both EMAs in bullish alignment
+dailyBull = dClose > dEma20 and dEma20 > dEma50
+dailyBear = dClose < dEma20 and dEma20 < dEma50
+
+// 1H: relaxed — EMA20 + VWAP (not requiring EMA50 alignment)
+htfBull = htfClose > htfEma20 and htfClose > htfVwap
+htfBear = htfClose < htfEma20 and htfClose < htfVwap
+
+htfOkLong  = not i_useHTF or htfBull
+htfOkShort = not i_useHTF or htfBear
+
+// ─── 5-MIN MOMENTUM CONDITIONS ────────────────────────────────────────
+// Long: price above VWAP + EMA stack + ORB breakout to upside
+p5Bull = close > vwapVal and close > emaFast and emaFast > emaSlow and orbFormed and close > orbHigh
+// Short: price below VWAP + EMA stack + ORB breakdown to downside
+p5Bear = close < vwapVal and close < emaFast and emaFast < emaSlow and orbFormed and close < orbLow
+
+rsiBull = rsiVal > i_rsiOB   // RSI momentum confirmation (>60 for longs)
+rsiBear = rsiVal < i_rsiOS   // RSI momentum confirmation (<40 for shorts)
+volConf = volume > volAvg20 * i_volMult  // Volume above average (breakout confirmation)
+
+// ─── KEY LEVEL FILTER (optional) ────────────────────────────────────
+bufPct     = i_levBuf / 100.0
+longLevel  = close > orbHigh * (1.0 + bufPct)   // Price extended above ORB high
+shortLevel = close < orbLow  * (1.0 - bufPct)   // Price extended below ORB low
+
+lvlOkLong  = not i_useLevel or longLevel
+lvlOkShort = not i_useLevel or shortLevel
+
+// ─── DAILY P&L KILL SWITCH ───────────────────────────────────────────
+// Stop trading for the day once max daily loss is hit
+var float dayStartEq = na
+var bool  dayKilled  = false
+
+isNewTradingDay = na(dayStartEq) or (isSessionOpen and (na(time[1]) or dayofweek != dayofweek[1]))
+if isNewTradingDay
+    dayStartEq := strategy.equity
+    dayKilled  := false
+
+dayPnL = strategy.equity - nz(dayStartEq, strategy.equity)
+if dayPnL < -i_maxDayLoss
+    dayKilled := true
+
+// ─── ENTRY SIGNALS ───────────────────────────────────────────────────
+noPos    = strategy.position_size == 0
+longSig  = canTrade and not dayKilled and dailyBull and htfOkLong  and p5Bull and rsiBull and volConf and lvlOkLong  and noPos
+shortSig = canTrade and not dayKilled and dailyBear and htfOkShort and p5Bear and rsiBear and volConf and lvlOkShort and noPos
+
+// ─── ATR POSITION SIZING ─────────────────────────────────────────────
+// Shares = floor(maxLoss / stopDistance), minimum 1 share
+stopDist = math.max(atrVal * i_atrMult, 0.01)
+qty      = math.max(math.floor(i_maxTradeLoss / stopDist), 1)
+
+// ─── TRADE EXECUTION ─────────────────────────────────────────────────
+if longSig
+    ep = close
+    strategy.entry("Long", strategy.long, qty=qty)
+    strategy.exit("L-Exit", "Long",
+         stop=ep - stopDist,
+         limit=ep + stopDist * i_rr,
+         comment="SL/TP")
+
+if shortSig
+    ep = close
+    strategy.entry("Short", strategy.short, qty=qty)
+    strategy.exit("S-Exit", "Short",
+         stop=ep + stopDist,
+         limit=ep - stopDist * i_rr,
+         comment="SL/TP")
+
+// EOD: close all open positions at 3:45 PM ET
+eodExit = nyHour >= 15 and nyMinute >= 45
+if eodExit and not noPos
+    strategy.close_all("EOD")
+
+// ─── PLOTS ───────────────────────────────────────────────────────────
+plot(series=vwapVal, title="VWAP",     color=color.purple,               linewidth=2)
+plot(series=emaFast, title="EMA Fast", color=color.new(color.blue, 0),   linewidth=1)
+plot(series=emaSlow, title="EMA Slow", color=color.new(color.orange, 0), linewidth=1)
+
+orbHighPlot = orbFormed ? orbHigh : na
+orbLowPlot  = orbFormed ? orbLow  : na
+plot(series=orbHighPlot, title="ORB High", color=color.new(color.green, 40), linewidth=1, style=plot.style_stepline)
+plot(series=orbLowPlot,  title="ORB Low",  color=color.new(color.red,   40), linewidth=1, style=plot.style_stepline)
+
+// Background highlight when daily kill switch is active
+bgcolor(dayKilled ? color.new(color.red, 90) : na, title="Day Kill Switch")
+
+// Entry signal labels
+if longSig
+    label.new(bar_index, low,  "L",
+         color=color.green, textcolor=color.white,
+         style=label.style_label_up, size=size.small)
+if shortSig
+    label.new(bar_index, high, "S",
+         color=color.red, textcolor=color.white,
+         style=label.style_label_down, size=size.small)
