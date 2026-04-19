@@ -5,3 +5,6 @@ temp_*
 *.log
 discovery-log.json
 .DS_Store
+litellm_local.yaml
+start_local_claude.ps1
+.claude/
