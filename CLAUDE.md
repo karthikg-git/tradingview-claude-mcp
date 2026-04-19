@@ -125,7 +125,7 @@ These tools can return large payloads. Follow these rules to avoid context bloat
 **NEVER use `tv_launch` MCP tool** — fails on Windows Store installs (WindowsApps sandbox blocks CDP).
 
 **Correct launch sequence:**
-1. Run `launch_tv.ps1` via Bash: `powershell -ExecutionPolicy Bypass -File "C:/Users/karth/Automation/Tradingview/launch_tv.ps1"`
+1. Run `launch_tv.ps1` via Bash: `powershell -ExecutionPolicy Bypass -File "C:/Users/karth/Automation/Tradingview/hooks/windows/launch_tv.ps1"`
 2. Script uses `Get-AppxPackage -Name "TradingView.Desktop"` to find the exe (NOT `Get-ChildItem` on WindowsApps — access denied)
 3. Kills existing instances, relaunches with `--remote-debugging-port=9222`, polls 20s for CDP
 4. On success: CDP ready on port 9222, proceed with MCP tools
