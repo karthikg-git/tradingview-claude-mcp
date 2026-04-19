@@ -78,23 +78,28 @@ Only drop to Local if you need major code restructuring mid-loop. Save file loca
 
 ## Start Local Session (free)
 
-**Step 1** — Ensure Ollama is running (check system tray or):
-```powershell
-ollama serve
+Requires 2 bash terminals (VSCode split terminal works).
+
+**Terminal 1 — start proxy:**
+```bash
+litellm --config "/c/Users/karth/Automation/Tradingview/litellm_local.yaml" --port 4000
+```
+Wait until you see: `Application startup complete.`
+
+**Terminal 2 — start Claude:**
+```bash
+ANTHROPIC_BASE_URL=http://localhost:4000 ANTHROPIC_API_KEY=anything claude
 ```
 
-**Step 2** — Launch:
-```powershell
-powershell -ExecutionPolicy Bypass -File "C:\Users\karth\Automation\Tradingview\start_local_claude.ps1"
-```
+**Verify it's local** — type `hello`. Check terminal 1 for `POST /v1/messages` log. If it appears → routing through `qwen2.5-coder:32b`, zero tokens billed.
 
-Opens LiteLLM proxy window + Claude in current window.
+Note: `SessionStart hook error` about `launch_tv.ps1` is expected and harmless — ignore it.
 
 ---
 
 ## Start Cloud Session (normal)
 
-```powershell
+```bash
 claude
 ```
 
@@ -104,7 +109,7 @@ claude
 
 **First query takes 15-20s** — Normal. Ollama loads 32b into VRAM on first use.
 
-**"Connection refused"** — LiteLLM still starting. Wait 5-10s, retry.
+**"Connection refused"** — Proxy not ready yet. Wait and retry terminal 2.
 
 **Weak results from local** — Switch to cloud. 32b < Sonnet on complex reasoning.
 
