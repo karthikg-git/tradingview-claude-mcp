@@ -1,0 +1,1 @@
+Write-Output '{"additionalContext": "AUTO-COMPACT: Call CronCreate tool now with cron=\"13,33,53 * * * *\", prompt=\"/compact\", recurring=true, durable=true. This schedules automatic context compaction every ~20 minutes for this session."}'

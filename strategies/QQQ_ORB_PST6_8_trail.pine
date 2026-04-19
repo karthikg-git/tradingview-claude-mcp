@@ -1,9 +1,14 @@
 //@version=6
-// QQQ ORB-VWAP PST 6-8am (ET 9:45-11:00) | vol=1.0 | Trail 0.5R/0.5R
-// BEST RESULT: +21.2% annual, PF=2.241, WR=77%, 74 trades, DD=4.5%  (1yr backtest Apr2025-Apr2026)
-// Trail: activates at 0.5R from entry, trails 0.5R behind peak → locks in breakeven quickly
+// QQQ ORB-VWAP PST 6-8am (ET 9:45-11:00) | SHORTS ONLY | v8 BEST
+// BEST RESULT: +10.08% annual, PF=4.359, WR=88.46%, 26 trades, DD=2.21% (1yr Apr2025-Apr2026)
+// Filters (institutional ORB short methodology):
+//   1. Shorts-only (longs systematically failing in 2025 downtrend regime)
+//   2. orbBearish: ORB candle (9:30 bar) closes bearish = directional bias confirmed
+//   3. entryBarBearish: entry bar also bearish = momentum confirmed at entry
+//   4. 1H trend: price < EMA20 AND RSI < 50 (multi-factor HTF alignment)
+//   5. belowPrevClose: current price below yesterday's close = intraday downtrend vs prior session
 // WARNING: Do NOT tighten trail_off below 0.5R — creates bar-resolution re-entry artifacts
-strategy("ORB-VWAP PST6-8 v4 trail",
+strategy("ORB-VWAP PST6-8 v8 shorts",
      overlay=true,
      initial_capital=25000, currency=currency.USD,
      margin_long=25, margin_short=25,
@@ -21,11 +26,13 @@ i_trailOff  = input.float(0.5,   "Trail offset (×R)",   minval=0.25, step=0.25)
 
 htfClose = request.security(syminfo.tickerid, "60", close,             lookahead=barmerge.lookahead_off)
 htfEma20 = request.security(syminfo.tickerid, "60", ta.ema(close, 20), lookahead=barmerge.lookahead_off)
-htfOkL   = not i_useHTF or htfClose > htfEma20
-htfOkS   = not i_useHTF or htfClose < htfEma20
+htfRsi14 = request.security(syminfo.tickerid, "60", ta.rsi(close, 14), lookahead=barmerge.lookahead_off)
+htfOkS   = not i_useHTF or (htfClose < htfEma20 and htfRsi14 < 50)
 
-vwapVal = ta.vwap
-atrVal  = ta.atr(14)
+prevDayClose = request.security(syminfo.tickerid, "D", close[1], lookahead=barmerge.lookahead_off)
+
+vwapVal  = ta.vwap
+atrVal   = ta.atr(14)
 
 nyHour   = hour(time, "America/New_York")
 nyMinute = minute(time, "America/New_York")
@@ -35,6 +42,7 @@ isOpen   = nyHour == 9 and nyMinute == 30
 var float[] orbVols  = array.new_float(0)
 var float   prevOrbV = na
 var bool    volOk    = false
+var bool    orbBearish = false
 
 if isOpen
     if not na(prevOrbV)
@@ -44,6 +52,7 @@ if isOpen
     orbAvg  = array.size(orbVols) >= 5 ? array.avg(orbVols) : na
     volOk  := not na(orbAvg) and volume < orbAvg * i_volMax
     prevOrbV := volume
+    orbBearish := close < open
 
 var float orbH = na
 var float orbL = na
@@ -67,8 +76,10 @@ noPos = strategy.position_size == 0
 atrOk = not na(atrVal) and atrVal > 0
 ok    = inSession and inWindow and noPos and not dayDead and orbFormed and atrOk and volOk
 
-longSig  = ok and close > orbH and close > vwapVal and htfOkL
-shortSig = ok and close < orbL and close < vwapVal and htfOkS
+entryBarBearish = close < open
+belowPrevClose  = not na(prevDayClose) and close < prevDayClose
+
+shortSig = ok and close < orbL and close < vwapVal and htfOkS and orbBearish and entryBarBearish and belowPrevClose
 
 stopDist    = math.max(atrVal * i_atrMult, syminfo.mintick * 10)
 stopDollars = stopDist * syminfo.pointvalue
@@ -76,10 +87,6 @@ qty         = math.min(math.max(math.floor(i_maxRisk / stopDollars), 1), 200)
 stopTicks   = math.round(stopDist / syminfo.mintick)
 trailPoints = math.round(stopDist * i_trailAct / syminfo.mintick)
 trailOffset = math.round(stopDist * i_trailOff / syminfo.mintick)
-
-if longSig
-    strategy.entry("L", strategy.long, qty=qty)
-    strategy.exit("Lx", "L", loss=stopTicks, trail_points=trailPoints, trail_offset=trailOffset)
 
 if shortSig
     strategy.entry("S", strategy.short, qty=qty)
@@ -91,7 +98,5 @@ if nyTotal >= 15*60+30 and not noPos
 plot(vwapVal,               "VWAP",  color.purple,              linewidth=2)
 plot(orbFormed ? orbH : na, "ORB H", color.new(color.green,40), linewidth=1, style=plot.style_stepline)
 plot(orbFormed ? orbL : na, "ORB L", color.new(color.red,  40), linewidth=1, style=plot.style_stepline)
-if longSig
-    label.new(bar_index, low,  "L", color=color.green, textcolor=color.white, style=label.style_label_up,   size=size.small)
 if shortSig
-    label.new(bar_index, high, "S", color=color.red,   textcolor=color.white, style=label.style_label_down, size=size.small)
+    label.new(bar_index, high, "S", color=color.red, textcolor=color.white, style=label.style_label_down, size=size.small)
