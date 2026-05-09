@@ -1,42 +1,27 @@
-# TradingView CDP Launcher - Windows
-# Kills existing TradingView, relaunches with CDP on port 9222, polls for readiness
+# TradingView CDP Launcher - Windows (Chrome PWA mode)
+# Kills existing Chrome TV app, relaunches with CDP on port 9222, polls for readiness
 
-$TV_APP_PATHS = @(
-    "$env:LOCALAPPDATA\Programs\TradingView\TradingView.exe",
-    "$env:ProgramFiles\TradingView\TradingView.exe",
-    "$env:ProgramFiles(x86)\TradingView\TradingView.exe"
-)
-
+$CHROME_EXE = "C:\Program Files\Google\Chrome\Application\chrome.exe"
+$TV_USER_DATA = "$env:LOCALAPPDATA\TradingViewChrome"
 $CDP_PORT = 9222
-$MAX_ATTEMPTS = 20
+$MAX_ATTEMPTS = 30
 
-# Find TradingView executable
-$TV_APP = $null
-foreach ($path in $TV_APP_PATHS) {
-    if (Test-Path $path) {
-        $TV_APP = $path
-        break
+# Kill any Chrome instance using the TV user data dir
+Get-Process -Name "chrome" -ErrorAction SilentlyContinue | ForEach-Object {
+    $cmdline = (Get-WmiObject Win32_Process -Filter "ProcessId=$($_.Id)" -ErrorAction SilentlyContinue).CommandLine
+    if ($cmdline -and $cmdline -match "TradingViewChrome") {
+        Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
     }
 }
-
-if (-not $TV_APP) {
-    Write-Output '{"status":"error","message":"TradingView.exe not found. Install from https://www.tradingview.com/desktop/"}'
-    exit 1
-}
-
-# Kill all existing TradingView processes
-Get-Process -Name "TradingView" -ErrorAction SilentlyContinue | Stop-Process -Force
 Start-Sleep -Seconds 2
 
-# Launch with remote debugging port enabled
-$userDataDir = Join-Path $env:APPDATA "TradingView"
-$logFile = Join-Path $env:TEMP "tradingview_launch.log"
-
-Start-Process -FilePath $TV_APP `
-    -ArgumentList "--remote-debugging-port=$CDP_PORT", "--user-data-dir=`"$userDataDir`"" `
-    -RedirectStandardOutput $logFile `
-    -RedirectStandardError $logFile `
-    -WindowStyle Hidden
+# Launch Chrome as TradingView PWA with remote debugging
+Start-Process -FilePath $CHROME_EXE `
+    -ArgumentList "--app=https://www.tradingview.com/chart/", `
+        "--user-data-dir=`"$TV_USER_DATA`"", `
+        "--remote-debugging-port=$CDP_PORT", `
+        "--no-first-run", `
+        "--no-default-browser-check"
 
 # Poll for CDP readiness
 for ($i = 1; $i -le $MAX_ATTEMPTS; $i++) {
@@ -51,5 +36,5 @@ for ($i = 1; $i -le $MAX_ATTEMPTS; $i++) {
     }
 }
 
-Write-Output "{`"status`":`"timeout`",`"cdp_port`":$CDP_PORT,`"message`":`"TradingView CDP did not respond within ${MAX_ATTEMPTS}s — try health check`"}"
+Write-Output "{`"status`":`"timeout`",`"cdp_port`":$CDP_PORT,`"message`":`"TradingView CDP did not respond within ${MAX_ATTEMPTS}s - try health check`"}"
 exit 1

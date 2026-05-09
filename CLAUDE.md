@@ -2,6 +2,35 @@
 
 68 tools for reading and controlling a live TradingView Desktop chart via CDP (port 9222).
 
+## Pine Script Edit Routing (Token Cost Control)
+
+**RULE: Never use Edit/Write/MultiEdit directly on `.pine` files.**
+
+A PreToolUse hook will block it and redirect you. Instead:
+
+```bash
+# Edit a .pine file using local Ollama (free, qwen2.5-coder:32b)
+bash scripts/pine-edit-local.sh <file.pine> "<plain English description of change>"
+
+# Pre-flight review (syntax, logic, repainting) before cloud compile
+bash scripts/pine-architect.sh <file.pine>
+
+# Compress error history before cloud handoff (paste into new session)
+bash scripts/pine-compact.sh < error_log.txt
+```
+
+**Routing table:**
+| Task | Tool | Cost |
+|------|------|------|
+| Edit/fix/draft .pine code | `pine-edit-local.sh` | $0 |
+| Syntax/logic review | `pine-architect.sh` | $0 |
+| Compress context for cloud | `pine-compact.sh` | $0 |
+| Compile in TradingView | `pine_smart_compile` MCP | $$ |
+| Backtest / read metrics | `data_get_strategy_results` MCP | $$ |
+| Screenshot / chart analysis | `capture_screenshot` MCP | $$ |
+
+If Ollama is unreachable (script exits 1), you may fall back to direct Edit/Write.
+
 ## Decision Tree — Which Tool When
 
 ### "What's on my chart right now?"
