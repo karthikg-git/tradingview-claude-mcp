@@ -23,7 +23,7 @@ MODEL="qwen2.5-coder:32b"
 OLLAMA_URL="http://localhost:11434/api/generate"
 CURRENT_CODE=$(cat "$FILE")
 
-PROMPT="You are an expert TradingView Pine Script v5 developer. Apply this change to the code below.
+PROMPT="You are an expert TradingView Pine Script v6 developer. Apply this change to the code below.
 
 CHANGE REQUESTED: ${INSTRUCTION}
 
@@ -33,7 +33,7 @@ Rules:
 - No explanation before or after the code
 - Preserve ALL unchanged logic exactly as-is
 - No new comments unless the edit specifically requires one
-- Must be valid Pine Script v5
+- Must be valid Pine Script v6
 
 CURRENT CODE:
 ${CURRENT_CODE}"

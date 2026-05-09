@@ -2,6 +2,7 @@
 # pine-route.sh "<task description>"
 # Classifies a task as LOCAL (free) or CLOUD (paid) and prints start command
 # No API call — pure keyword routing, instant
+set -euo pipefail
 
 TASK="${*:-}"
 if [[ -z "$TASK" ]]; then
@@ -31,11 +32,10 @@ elif echo "$TASK_LOWER" | grep -qE "$LOCAL_PATTERN"; then
   echo "ROUTE: LOCAL"
   echo "WHY:   Code edit/review — no MCP needed, Ollama handles it free"
   echo ""
-  echo "START: ANTHROPIC_BASE_URL=http://localhost:4000 ANTHROPIC_API_KEY=anything claude"
-  echo "       (after: litellm --config ~/Automation/Tradingview/litellm_local.yaml --port 4000)"
+  echo "START: bash scripts/pine-edit-local.sh <file.pine> \"$TASK\""
 else
   echo "ROUTE: LOCAL (default)"
-  echo "WHY:   Ambiguous task — start local, escalate to cloud if MCP needed"
+  echo "WHY:   Ambiguous — start with Ollama, escalate to cloud if MCP needed"
   echo ""
-  echo "START: ANTHROPIC_BASE_URL=http://localhost:4000 ANTHROPIC_API_KEY=anything claude"
+  echo "START: bash scripts/pine-edit-local.sh <file.pine> \"$TASK\""
 fi

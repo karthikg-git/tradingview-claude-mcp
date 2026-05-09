@@ -8,3 +8,4 @@ discovery-log.json
 litellm_local.yaml
 start_local_claude.ps1
 .claude/
+*.bak

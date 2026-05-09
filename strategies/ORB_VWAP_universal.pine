@@ -110,7 +110,9 @@ if shortSig
     strategy.entry("S", strategy.short, qty=qty)
     strategy.exit("Sx", "S", loss=stopTicks, trail_points=trailPoints, trail_offset=trailOffset)
 
-if i_useSess and nyTotalM >= eodM and not noPos
+defaultEodM = 15 * 60 + 30
+eodFire = i_useSess ? (nyTotalM >= eodM) : (nyTotalM >= defaultEodM)
+if eodFire and not noPos
     strategy.close_all("EOD")
 
 plot(vwapVal,               "VWAP",  color.purple,              linewidth=2)

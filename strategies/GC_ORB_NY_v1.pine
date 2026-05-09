@@ -1,4 +1,4 @@
-// @version=6
+//@version=6
 strategy("GC ORB NY v1", overlay=true, default_qty_type=strategy.fixed, default_qty_value=1,
      commission_value=8, commission_type=strategy.commission.cash_per_order,
      margin_long=8, margin_short=8, initial_capital=25000)
@@ -13,7 +13,7 @@ i_minATR   = input.float(5.0,   "Min ATR (pts)", minval=1.0)
 
 // ── Backtest window ───────────────────────────────────────────────────────────
 inBT = time >= timestamp("2025-04-19T00:00:00-05:00")
-if not inBT
+if not inBT and strategy.position_size != 0
     strategy.close_all()
 
 // ── Session time (ET) ─────────────────────────────────────────────────────────
@@ -23,7 +23,7 @@ nyTotal  = nyHour * 60 + nyMinute
 
 isOpen        = nyHour == 9 and nyMinute == 30
 inORBWindow   = nyTotal >= 570 and nyTotal < 600
-inEntryWindow = nyTotal >= 600 and nyTotal <= 660
+inEntryWindow = nyTotal >= 600 and nyTotal < 660
 
 // ── ORB state ─────────────────────────────────────────────────────────────────
 var float orbHigh   = na
@@ -45,7 +45,7 @@ if inORBWindow and not isOpen
     orbHigh := math.max(orbHigh, high)
     orbLow  := math.min(orbLow,  low)
 
-if nyTotal == 600
+if nyTotal >= 600 and not orbFormed
     orbFormed := true
 
 // ── VWAP (daily reset) ────────────────────────────────────────────────────────

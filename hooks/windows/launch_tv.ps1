@@ -23,6 +23,9 @@ Start-Process -FilePath $CHROME_EXE `
         "--no-first-run", `
         "--no-default-browser-check"
 
+# Give Chrome time to bind the port before polling
+Start-Sleep -Seconds 5
+
 # Poll for CDP readiness
 for ($i = 1; $i -le $MAX_ATTEMPTS; $i++) {
     try {

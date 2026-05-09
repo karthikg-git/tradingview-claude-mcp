@@ -27,7 +27,7 @@ MODEL="qwen2.5-coder:32b"
 OLLAMA_URL="http://localhost:11434/api/generate"
 PINE_CODE=$(cat "$PINE_FILE")
 
-PROMPT="You are an expert TradingView Pine Script v5 developer. Review this Pine Script for:
+PROMPT="You are an expert TradingView Pine Script v6 developer. Review this Pine Script for:
 1. Syntax errors (invalid calls, missing brackets, wrong arg types)
 2. Repainting (future data, request.security lookahead misuse, referencing bar_index[0] in conditions)
 3. Logic errors (contradicting entry/exit conditions, conditions that never trigger)
